@@ -57,14 +57,14 @@ class GapBuffer(T)
 		return gapEnd - gapStart;
 	}
 
-	@safe @property empty() const pure nothrow
+	@safe @property bool empty() const pure nothrow
 	{
 		return length == 0;
 	}
 
 	void moveEditPointToEnd()
 	{
-            placeGapStart(length);
+		placeGapStart(length);
 	}
 
 	private void placeGapStart(int index)
@@ -240,7 +240,7 @@ class GapBuffer(T)
 		{
 			private
 			{
-				const(GapBuffer!T) gbuf;
+				Rebindable!(const(GapBuffer!T)) gbuf;
 				size_t from;
 				size_t to;
 			}
@@ -323,6 +323,15 @@ class GapBuffer(T)
 		return r;
 	}
 
+	void copyTo(OutputRange)(ref OutputRange r, int from = 0, int to = int.max) const
+	{
+		int clampTo = min(to, buffer.length);
+		
+		if (from < gapStart)
+			copy(buffer[from..gapStart], r);
+		if (clampTo > gapEnd)
+			copy(buffer[gapEnd..clampTo], r);
+	}
 
 	T[] toArray(int from, int to) const pure
 	{
@@ -871,9 +880,14 @@ final:
 		lbuffer.onLinesRemoved.connect(&this.onLinesRemoved);
 	}
 
-	@safe @property length() const pure nothrow
+	@safe @property int length() const pure nothrow
 	{
 		return gbuffer.length;
+	}
+
+	@safe @property bool empty() const pure nothrow
+	{
+		return gbuffer.empty;
 	}
 
 	@property CharType[] beforeGap()
@@ -939,7 +953,7 @@ final:
 	{
 		size_t s = gbuffer.length + gbuffer.gapSize;
 		if (s < cap)
-                    gbuffer.ensureGapCapacity(gbuffer.gapSize + cast(int)(cap - s));
+			gbuffer.ensureGapCapacity(gbuffer.gapSize + cast(int)(cap - s));
 	}
 
 	CharType[] toArray(size_t from, size_t to) const
@@ -950,6 +964,11 @@ final:
 	CharType[] toArray() const pure nothrow
 	{
 		return gbuffer.toArray();
+	}
+
+	void copyTo(OutputRange)(ref OutputRange r, int begin = 0, int end = int.max) const
+	{
+		gbuffer.copyTo(r, begin, end);
 	}
 
 	int prev(int index, bool clamp = true) const

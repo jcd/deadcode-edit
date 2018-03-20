@@ -49,12 +49,12 @@ class CopyBuffer
 
 	@property bool empty() const
 	{
-        return entries.empty && !_clipboard.hasText;	
+        return entries.empty && (_clipboard is null || !_clipboard.hasText);
     }
 
 	@property size_t length() const
 	{
-        if (_clipboard.hasText)
+        if (_clipboard !is null && _clipboard.hasText)
 		{
 			if (entries.empty)
 			{
@@ -79,7 +79,8 @@ class CopyBuffer
 	{
 		import std.string;
 		entries ~= new Entry(t);
-        _clipboard.text = t;
+        if (_clipboard !is null)
+            _clipboard.text = t;
 	}
 
 	Entry get(int offset)
@@ -88,7 +89,7 @@ class CopyBuffer
 		if (offset >= len)
 			return null;
 
-        if (_clipboard.hasText)
+        if (_clipboard !is null && _clipboard.hasText)
 		{
 			if (entries.empty)
 			{

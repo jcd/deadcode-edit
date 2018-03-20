@@ -1,6 +1,5 @@
 module deadcode.edit.bufferview;
 
-import deadcode.api.api : IBufferView;
 import deadcode.edit.buffer; // : TextBuffer;
 import deadcode.edit.bufferviewaction;
 import deadcode.edit.copybuffer;
@@ -130,6 +129,172 @@ class RegionView
 	}
     */
 }
+/*
+interface IBufferView 
+{
+    @property 
+    {
+        int id(); 
+        string name();
+        void name(string n);
+        string filePath();
+        void filePath(string n);
+		bool modified();
+    }
+
+	void insert(string txt);
+    void append(string items);
+    void appendf(Args...)(string formatString, Args args)
+    {
+        import std.format;
+        append(format(formatString, args));
+    }
+
+    char[] getText(int begin = 0, int end = int.max) const;
+	void save();
+	void clear();
+	void clear(string txt);
+
+    void beginUndoGroup();
+    void endUndoGroup();
+}
+*/
+interface IBufferView 
+{
+    @property 
+    {
+        int id(); 
+        int bufferID();
+        string name();
+        void name(string n);
+        string filePath();
+        void filePath(string n);
+		bool isPersistant();
+		bool modified();
+		void selection(Region r);
+		Region selection();
+
+		int lineNumber() ;
+		int lineNumberRelativeToView();
+		int bufferStartOffset();
+		int bufferEndOffset();
+		int lineOffset();
+		void lineOffset(int o);
+		int visibleLineCount();
+		bool empty();
+		int length();
+		int cursorPoint();
+ 		void cursorPoint(int v);
+ 		int preferredCursorColumn();
+ 		void preferredCursorColumn(int col);
+    }
+
+    bool hasRegionsSet(string name);
+    //RegionSet getRegionSet(string name, lazy RegionSet _default = new RegionSet());
+    //void setRegionSet(string name, RegionSet rs);
+    void removeRegionSet(string name);
+
+    void pushSelection();
+    void popSelection();
+	void clearSelection();
+
+	void viewOnLine(int line);
+	bool isLineInView(int line);
+	void scrollToLineInView(int line);
+	void centerOnLine(int line, bool onlyWhenNotInView = false);
+	void centerOnChar(int index, bool onlyWhenNotInView = false);
+    void viewOnLinePaged(int line);
+    void viewOnCharPaged(int index);
+
+	void ensureCapacity(size_t s);
+
+	Region getRegion(RegionQuery query);
+    Region getRegion(RegionQuery query, int index);
+	void save();
+	char[] getText(int begin = 0, int end = int.max);
+	char[] getText(Region r);
+    char[] getLineAtCursor();
+    char[] getLineAtSelection();
+	bool isCursorFollowing(string s);
+	void replace(string txt, Region r);
+
+	Region wordAtCursor();
+	int lineCount();
+
+	void clearUndoStack();
+	void undo();
+	void redo();
+	void copy();
+	void paste(int copyBufferEntryOffset = 0);
+	void pasteCycle();
+	void cut();
+    void clear(string newContent);
+	void clear();
+
+	void cursorToStart();
+	void cursorToEnd();
+	void cursorToLine(int l);
+	void cursorLeft(int c = 1);
+	void cursorRight(int c = 1);
+	void cursorUp(int c = 1);
+	void cursorDown(int c = 1);
+	void cursorToBeginningOfLine();
+	void cursorToEndOfLine();
+	void cursorToLineBefore();
+	void cursorToLineAfter();
+	void cursorToBeginningOfWord();
+	void cursorToEndOfWord();
+	void cursorToWordBefore();
+	void cursorToWordAfter();
+
+	bool isValidCursorPoint(int v);
+
+	void selectLeft(int c = 1);
+	void selectRight(int c = 1);
+	void selectUp(int c = 1);
+	void selectDown(int c = 1);
+	void selectToBeginningOfLine();
+	void selectToEndOfLine();
+	void selectToWordBefore();
+	void selectToBeginningOfWord();
+	void selectToEndOfWord();
+	void selectToWordAfter();
+
+	void scrollUp(int lines = 1);
+	void scrollDown(int lines = 1);
+
+	void deleteToWordBefore();
+	void deleteToWordAfter();
+	void deleteToEndOfLine();
+
+    TextBoundary classify(int idx = int.min);
+    int findByClass(bool forward, TextBoundary bound, int index = int.min);
+    Region expandByClass(TextBoundary bound, int index = int.min);
+    Region expandByClass(TextBoundary bound, Region r);
+
+	//auto find(const(char)[] regex, const(char)[] flags, int index = int.min);
+	//auto find(string regex, int index = int.min);
+
+	void setPreferredCursorColumnFromIndex(int index = InvalidIndex);
+	void setIndexFromPreferredCursorColumn(int col = InvalidIndex);
+
+	//void insert(dchar item);
+	//void insert(char item);
+	void insert(string txt);
+    void append(string items);
+//	void append(const(char)[] items); 
+    void appendf(Args...)(string formatString, Args args)
+    {
+        import std.format;
+        append(format(formatString, args));
+    }
+
+    void storeState();
+	void remove(int count);
+
+    void beginUndoGroup();
+    void endUndoGroup();
+}
 
 
 //import extensionapi.rpc;
@@ -162,6 +327,7 @@ class BufferView : IBufferView
 	private
 	{
         string _name;
+        string _filePath;
 		int _preferredCursorColumn;
 		int _lineOffset;   // line offset into the buffer from where to draw.
 		int _bufferStartOffset; // Cached value of index of first char on line specified by lineOffset
@@ -196,6 +362,9 @@ class BufferView : IBufferView
 
     // emit(this, oldName)
     mixin Signal!(BufferView, string) onRenamed;
+
+    // emit(this, oldFilePath)
+    mixin Signal!(BufferView, string) onFilePathChanged;
 
 	// emit(this, afterThisIndex, count, true == insert | false == remove)
 	mixin Signal!(BufferView, int, int, bool) onChanged;
@@ -241,16 +410,26 @@ class BufferView : IBufferView
 
         void name(string n)
         {
+			if (n == _name)
+				return;
             string oldName = _name;
             _name = n;
             onRenamed.emit(this, oldName);
         }
 
-        string fileName() const pure nothrow @safe
+        string filePath() const pure nothrow @safe
         {
-            if (isPersistant)
-                return name;
-            return null;
+            return _filePath;
+        }
+
+        void filePath(string n)
+        {
+			if (n == _filePath)
+				return;
+
+            string oldFilePath = _filePath;
+            _filePath = n;
+            onFilePathChanged.emit(this, oldFilePath);
         }
 
 		bool isPersistant() const pure nothrow @safe
@@ -290,7 +469,7 @@ class BufferView : IBufferView
             _undoStack.push!CursorAction(this, TextBoundary.unit, r.b - selections[0].b, selecting);
 		}
 
-		const(Region) selection() const pure
+		Region selection() const pure
 		{
 			return selections[0];
 		}
@@ -676,9 +855,14 @@ class BufferView : IBufferView
 			}
 		}
 
-		int length() const nothrow
+		bool empty() const pure nothrow @safe
 		{
-                    return cast(int)buffer.length;
+			return buffer.length == 0;
+		}
+
+		int length() const pure nothrow @safe
+		{
+			return buffer.length;
 		}
 
 		const(TextBuffer.CharType)[] lastLine() const
@@ -731,6 +915,36 @@ class BufferView : IBufferView
 		case RegionQuery.buffer:
             return Region(0, cast(int)buffer.length);
 		}
+	}
+
+	void save()
+	{
+		if (!_filePath.empty)
+		{
+			static import std.file;
+			if (std.file.exists(_filePath))
+				std.file.copy(_filePath, _filePath ~ "_backup");
+			auto f = File(_filePath, "wb");
+			auto writer = f.lockingTextWriter();
+			copyTo(writer);
+			_modified = false;
+		}
+	}
+
+	void copyTo(OutputRange)(ref OutputRange r, int begin = 0, int end = int.max) const
+	{
+		buffer.copyTo(r, begin, end);
+	}
+
+	// Fills the 'output' array with chars starting from 'begin' and to 'begin + output.length'
+	// The latter is clamped in case the buffer doesn't have enough chars to fill 'output'.
+	// Returns: The slice of output that had chars assigned to it.
+	TextBuffer.CharType[] copyTo(out TextBuffer.CharType[] output, int begin = 0) const
+	{
+		const int readLen = buffer.length - begin;
+		int l = readLen > output.length ? output.length : readLen;
+		copyTo!(TextBuffer.CharType[])(output, begin, l);
+		return output[0..l];
 	}
 
 	TextBuffer.CharType[] getText(int begin = 0, int end = int.max) const
@@ -876,9 +1090,9 @@ class BufferView : IBufferView
     void clear(immutable(TextBuffer.CharType)[] dl)
 	{
 		_undoStack.push!ActionGroupAction(this,
-											new CursorAction(TextBoundary.buffer, -1),
-											new RemoveAction(TextBoundary.buffer, 1),
-											new InsertAction(dl));
+										new CursorAction(TextBoundary.buffer, -1),
+										new RemoveAction(TextBoundary.buffer, 1),
+										new InsertAction(dl));
 	}
 
 	void write(File file)
@@ -1110,8 +1324,8 @@ class BufferView : IBufferView
 	void clear()
 	{
 		_undoStack.push!ActionGroupAction(this,
-										  new CursorAction(TextBoundary.buffer, -1),
-										  new RemoveAction(TextBoundary.buffer, 1));
+											new CursorAction(TextBoundary.buffer, -1),
+											new RemoveAction(TextBoundary.buffer, 1));
 	}
 
 	void cursorLeft(int c = 1)
@@ -1383,8 +1597,11 @@ class BufferViewManager
     // (bufferView, index, count, insert == true | remove == false)
     mixin Signal!(BufferView, int, int, bool) onBufferChanged;
 
-	// BufferView has beem renamed from the second parameter to BufferView.name
+	// BufferView has been renamed from the second parameter to BufferView.name
 	mixin Signal!(BufferView, string) onBufferViewRenamed;
+
+	// BufferView filePath has been changed from the second parameter to BufferView.filePath
+	mixin Signal!(BufferView, string) onBufferViewFilePathChanged;
 
     mixin Signal!(BufferView, ICodeModel) onBufferViewCodeModelChanged;
 
@@ -1393,12 +1610,12 @@ class BufferViewManager
 		copyBuffer = b;
 	}
 
-	private string uniqueName()
+	private string generateUniqueName(string baseName = "Buffer ")
 	{
 		int namingSeq = 0;
 		while (true)
 		{
-			string autoName = text("Buffer ", namingSeq);
+			string autoName = text(baseName, namingSeq);
 			if (this[autoName] is null)
 				return autoName;
 			namingSeq++;
@@ -1407,7 +1624,6 @@ class BufferViewManager
 
 	auto create(string content = "", string name = null)
 	{
-		sanitizeName(name);
 		auto b = new BufferView(content);
 		setup(b, name);
 		return b;
@@ -1415,30 +1631,22 @@ class BufferViewManager
 
 	auto create(TextBuffer buf, string name = null)
 	{
-		sanitizeName(name);
 		auto b = new BufferView(buf);
 		setup(b, name);
 		return b;
 	}
 
-	private void sanitizeName(ref string name)
-	{
-		if (name is null)
-			name = uniqueName();
-		enforceEx!Exception(this[name] is null, text("A buffer with the name ", name, "already exists"));
-	}
-
 	private auto setup(BufferView b, string name)
 	{
 		if (name is null)
-			name = uniqueName();
-		enforceEx!Exception(this[name] is null, text("A buffer with the name ", name, "already exists"));
+			name = generateUniqueName();
 
 		b.copyBuffer = copyBuffer;
 		b.name = name;
 		b._id = _nextBufferViewID++;
 		buffers[b.id] = b;
 		b.onRenamed.connect(&bufferViewRenamed);
+		b.onFilePathChanged.connect(&bufferViewFilePathChanged);
         b.onCodeModelChanged.connect(&codeModelChanged);
         b.onBufferModified.connect(&bufferModified);
         b.onChanged.connect(&bufferChanged);
@@ -1453,7 +1661,8 @@ class BufferViewManager
 	 */
 	BufferView createFromPath(string path, string name = null)
 	{
-		auto b = create(name is null ? path : name);
+		auto b = create(name);
+        b.filePath = path;
 		auto f = std.stdio.File(path, "rb");
 		ulong size = f.size();
 		b.buffer.reserve(cast(size_t)size);
@@ -1465,6 +1674,14 @@ class BufferViewManager
 		return b;
 	}
 
+    BufferView findBufferByFilePath(string path)
+    {
+        foreach (v; buffers.byValue)
+            if (v.filePath == path)
+                return v;
+        return null;
+    }
+
 	BufferView opIndex(string name)
 	{
 		foreach (b; buffers)
@@ -1475,9 +1692,9 @@ class BufferViewManager
 		return null;
 	}
 
-    BufferView opIndex(int idx)
+    BufferView opIndex(int id)
     {
-        if (auto b = idx in buffers)
+        if (auto b = id in buffers)
             return *b;
         return null;
     }
@@ -1489,17 +1706,18 @@ class BufferViewManager
 		return create(name);
 	}
 
-	void rename(string from, string to)
-	{
-		auto b = this[from];
-		if (b !is null)
-		{
-			b.name = to;
-			onBufferViewRenamed.emit(b, from);
-		}
-	}
+    //void rename(string from, string to)
+    //{
+    //    auto b = this[from];
+    //    if (b !is null)
+    //    {
+    //        b.name = to;
+    //        onBufferViewRenamed.emit(b, from);
+    //    }
+    //}
 
-	void destroy(string name)
+	/++ Remove all BufferViews that have the specified name +/ 
+    void removeByName(string name)
 	{
 		auto b = this[name];
 		if (b)
@@ -1509,14 +1727,38 @@ class BufferViewManager
 		}
 	}
 
-	void destroy(BufferView b)
+	/++ Remove all BufferViews that have the specified name +/ 
+    void removeByFilePath(string filePath)
+	{
+		foreach (b; buffers)
+		{
+			if (b.filePath == filePath)
+            {
+                buffers.remove(b.id); // TODO: make sure dependent actors get notified? or rely on GC?
+                onBufferViewDestroyed.emit(b);
+            }
+		}
+	}
+
+    void remove(int id)
+	{
+        auto b = id in buffers;
+        if (b !is null)
+        {
+            buffers.remove(id); // TODO: make sure dependent actors get notified? or rely on GC?
+            onBufferViewDestroyed.emit(*b);
+        }
+    }
+
+	void remove(BufferView b)
 	{
 		foreach (key, value; buffers)
 		{
 			if (value == b)
 			{
-				destroy(value.name);
-				return;
+                buffers.remove(b.id); // TODO: make sure dependent actors get notified? or rely on GC?
+                onBufferViewDestroyed.emit(b);
+				break;
 			}
 		}
 	}
@@ -1535,6 +1777,11 @@ class BufferViewManager
     private void bufferViewRenamed(BufferView b, string oldName)
     {
         onBufferViewRenamed.emit(b, oldName);
+    }
+
+    private void bufferViewFilePathChanged(BufferView b, string oldFilePath)
+    {
+        onBufferViewFilePathChanged.emit(b, oldFilePath);
     }
 
     private void codeModelChanged(BufferView b, ICodeModel m)
