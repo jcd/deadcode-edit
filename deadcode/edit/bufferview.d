@@ -942,7 +942,9 @@ class BufferView : IBufferView
 	TextBuffer.CharType[] copyTo(out TextBuffer.CharType[] output, int begin = 0) const
 	{
 		const int readLen = buffer.length - begin;
-		int l = readLen > output.length ? output.length : readLen;
+		assert(output.length <= int.max);
+		
+		int l = cast(int)(readLen > output.length ? output.length : readLen);
 		copyTo!(TextBuffer.CharType[])(output, begin, l);
 		return output[0..l];
 	}
